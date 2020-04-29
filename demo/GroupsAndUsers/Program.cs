@@ -1,21 +1,101 @@
 ﻿using System;
+using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Graph;
 
 namespace GroupsAndUsers
 {
     class Program
     {
-        static IConfigurationRoot LoadAppSettings()
+        static Dictionary<string, string> LoadDeviceCodeAppSettings()
         {
-            IConfigurationRoot result = null;
-            var appConfig = new ConfigurationBuilder()
-                .AddUserSecrets<Program>()
-                .Build();
-            if (string.IsNullOrEmpty(appConfig["appId"]) == false &&
-                string.IsNullOrEmpty(appConfig["scopes"]) == false)
-            {
-                result = appConfig;
-            }
+            Dictionary<string, string> result = null;
+            do {
+                // Get config ftom Environment variable
+                // ex. appId="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                // ex. scopes="Directory.Read.All;User.Read"
+                string appId = Environment.GetEnvironmentVariable("appId");
+                string scopes = Environment.GetEnvironmentVariable("scopes");
+                if (string.IsNullOrEmpty(appId) == false &&
+                    string.IsNullOrEmpty(scopes) == false)
+                {
+                    result = new Dictionary<string, string>()
+                    {
+                        {"appId", appId},
+                        {"scopes", scopes}
+                    };
+                    break;
+                } 
+                // Get config ftom appsettings.json
+                var appConfig = new ConfigurationBuilder()
+                    .AddUserSecrets<Program>()
+                    .Build();
+                appId = appConfig["appId"];
+                scopes = appConfig["scopes"];               
+                if (string.IsNullOrEmpty(appId) == false &&
+                    string.IsNullOrEmpty(scopes) == false)
+                {
+                    result = new Dictionary<string, string>()
+                    {
+                        {"appId", appId},
+                        {"scopes", scopes}
+                    };
+                    break;
+                }
+            } while (false);
+            return result;
+        }
+
+        static Dictionary<string, string> LoadClientSecretAppSettings()
+        {
+            Dictionary<string, string> result = null;
+            do {
+                // Get config ftom Environment variable
+                // ex. appId="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                // ex. scopes="https://graph.microsoft.com/.default"
+                // ex. tenantId="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                // ex. clientSecret="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                string appId = Environment.GetEnvironmentVariable("appId");
+                string scopes = Environment.GetEnvironmentVariable("scopes");
+                string tenantId = Environment.GetEnvironmentVariable("tenantId");
+                string clientSecret = Environment.GetEnvironmentVariable("clientSecret");
+                if (string.IsNullOrEmpty(appId) == false &&
+                    string.IsNullOrEmpty(scopes) == false &&
+                    string.IsNullOrEmpty(tenantId) == false &&
+                    string.IsNullOrEmpty(clientSecret) == false)
+                {
+                    result = new Dictionary<string, string>()
+                    {
+                        {"appId", appId},
+                        {"scopes", scopes},
+                        {"tenantId", tenantId},
+                        {"clientSecret", clientSecret}
+                    };
+                    break;
+                } 
+                // Get config ftom appsettings.json
+                var appConfig = new ConfigurationBuilder()
+                    .AddUserSecrets<Program>()
+                    .Build();
+                appId = appConfig["appId"];
+                scopes = appConfig["scopes"];
+                tenantId = appConfig["tenantId"];
+                clientSecret = appConfig["clientSecret"];
+                if (string.IsNullOrEmpty(appId) == false &&
+                    string.IsNullOrEmpty(scopes) == false &&
+                    string.IsNullOrEmpty(tenantId) == false &&
+                    string.IsNullOrEmpty(clientSecret) == false)
+                {
+                    result = new Dictionary<string, string>()
+                    {
+                        {"appId", appId},
+                        {"scopes", scopes},
+                        {"tenantId", tenantId},
+                        {"clientSecret", clientSecret}
+                    };
+                    break;
+                }
+            } while (false);
             return result;
         }
 
@@ -28,43 +108,56 @@ namespace GroupsAndUsers
             foreach (var group in groups)
             {
                 Console.WriteLine($"+Id: {group.Id}");
-                Console.WriteLine($"  DisplayName: {group.DisplayName}");
+                Console.WriteLine($"  displayName: {group.DisplayName}");
                 var directoryObjects = GraphHelper.GetGroupMembersAsync(group.Id).Result;
                 foreach (Microsoft.Graph.User directoryObject in directoryObjects)
                 {
                     Console.WriteLine($"   +Id: {directoryObject.Id}");
-                    Console.WriteLine($"    DisplayName: {directoryObject.DisplayName}");
-                    Console.WriteLine($"    Mail: {directoryObject.Mail}");
+                    Console.WriteLine($"    displayName: {directoryObject.DisplayName}");
+                    Console.WriteLine($"    userPrincipalName: {directoryObject.UserPrincipalName}");
                 }
             }
         }
 
         static void Main(string[] args)
         {
-            var appConfig = LoadAppSettings();
-            if (appConfig == null)
+            bool devcode = true;
+            IAuthenticationProvider authProvider = null;
+
+            if (devcode == true)
             {
-                Console.WriteLine("Missing or invalid appsettings.json");
-                return;
+                // Device Code
+                var appConfig = LoadDeviceCodeAppSettings();
+                if (appConfig == null)
+                {
+                    Console.WriteLine("Missing or invalid appsettings.json");
+                    return;
+                }
+                var appId = appConfig["appId"];
+                var scopesString = appConfig["scopes"];
+                var scopes = scopesString.Split(';');
+                // Initialize the auth provider with values from appsettings.json
+                authProvider = new DeviceCodeAuthProvider(appId, scopes);
+            } else {
+                // Client Secret
+                var appConfig = LoadClientSecretAppSettings();
+                if (appConfig == null)
+                {
+                    Console.WriteLine("Missing or invalid appsettings.json");
+                    return;
+                }
+                var appId = appConfig["appId"];
+                var scopesString = appConfig["scopes"];
+                var scopes = scopesString.Split(';');
+                var tenantId = appConfig["tenantId"];
+                var clientSecret = appConfig["clientSecret"];
+                // Initialize the auth provider with values from appsettings.json
+                authProvider = new ClientSecretAuthProvider(appId, scopes, tenantId, clientSecret);
             }
-            var appId = appConfig["appId"];
-            var scopesString = appConfig["scopes"];
-            var scopes = scopesString.Split(';');
-            // Initialize the auth provider with values from appsettings.json
-            var authProvider = new DeviceCodeAuthProvider(appId, scopes);
-            // Request a token to sign in the user
-            var accessToken = authProvider.GetAccessToken().Result;
             // Initialize Graph client
             GraphHelper.Initialize(authProvider);
-            // Get signed in user
-            var user = GraphHelper.GetMeAsync().Result;
-            Console.WriteLine($"Welcome {user.DisplayName}!\n");
             // Get groups and users
             ListGroups();
         }
     }
 }
-
-
-
-
